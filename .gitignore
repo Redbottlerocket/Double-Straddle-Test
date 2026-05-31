@@ -1,0 +1,13 @@
+# Databento API key and data pipeline scripts (private)
+pipeline/
+
+# Python environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# OS
+.DS_Store
+Thumbs.db
