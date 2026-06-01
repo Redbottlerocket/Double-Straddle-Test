@@ -17,7 +17,7 @@ The long leg of the calendar straddle — a bought ATM call and bought ATM put e
 _Avoid_: long straddle, back leg, long-dated straddle
 
 **Entry Date**:
-The date both straddle legs are opened simultaneously — 7 calendar days before the earnings date. Prices are taken at the end-of-day mid price.
+The date both straddle legs are opened simultaneously — 7 calendar days before the earnings date. Short legs are sold at the bid, long legs are bought at the ask, using the end-of-day closing snapshot.
 _Avoid_: open date, trade date, start date
 
 **Earnings Date**:
@@ -25,12 +25,20 @@ The date the company reports earnings (`earn_dt` in the trade schedule). Earning
 _Avoid_: report date, announcement date
 
 **Near-Term Exit**:
-The close of the first trading day after the earnings date. The near-term straddle is bought back (closed) at end-of-day mid price.
-_Avoid_: expiry, short exit, earnings exit
+The expiry of the near-term straddle (typically 2–7 days after earnings). Settled at intrinsic value using the underlying's close on expiry day — `max(spot - strike, 0)` for the call, `max(strike - spot, 0)` for the put. No bid/ask needed.
+_Avoid_: expiry, short exit, earnings exit, buyback
 
 **Far-Term Exit**:
-One trading day before the next earnings date. The far-term straddle is sold (closed) at end-of-day mid price.
+One trading day before the next earnings date. The far-term straddle is sold at the bid using the end-of-day closing snapshot.
 _Avoid_: long exit, expiry exit, next earnings close
+
+**Closing Snapshot**:
+The bid/ask quote captured at or near the 4:00 PM ET market close for each option contract each trading day. The single point-in-time quote we use for all fills. Pulled from Databento OPRA.PILLAR as one row per (symbol, date) in `data/options_daily.parquet` (or `options_close.parquet` for the cbbo-1h re-pull).
+_Avoid_: EOD price, daily mid, market close
+
+**Raw Data**:
+The unprocessed Databento response saved to `data/raw/` before any reduction. Preserved on disk so that alternative EOD filters or schemas can be re-derived without re-paying for the same data.
+_Avoid_: source data, original data, dump
 
 **Net Premium**:
 The net cash outlay per trade: far-term straddle cost minus near-term straddle credit, in dollars (1 contract = 100 shares).
