@@ -56,8 +56,8 @@ tbill  = tbill.ffill()                       # fill weekends / holidays
 # ---------------------------------------------------------------------------
 # Build look-up structures
 # ---------------------------------------------------------------------------
-# Option mid prices: (symbol, date) -> mid
-opts_idx = opts.set_index(["symbol", "date"])["mid"]
+# Option prices: (symbol, date) -> bid, ask, mid
+opts_idx = opts.set_index(["symbol", "date"])[["bid", "ask", "mid"]]
 
 # Equity price lookup (for intrinsic settlement at expiry)
 equity_idx = equity.set_index("date")
@@ -82,74 +82,56 @@ def prev_trading_day(dt):
         prev = d
     return prev
 
-def get_mid(symbol, date):
-    """Mid price for a symbol on a date. Returns NaN if missing."""
+def get_price(symbol, date, side="mid"):
+    """Get bid, ask, or mid price for a symbol on a date. Returns NaN if missing."""
     try:
-        return opts_idx.loc[(symbol, date)]
+        return opts_idx.loc[(symbol, date), side]
     except KeyError:
         return np.nan
 
 MIN_OPTION_PRICE = 0.01   # floor for expired / deep-OTM legs
 
-def first_quoted_date(sym_a, sym_b, from_dt, to_dt):
+def first_quoted_date(sym_a, sym_b, from_dt, to_dt, side="mid"):
     """
     First trading day in [from_dt, to_dt] where both symbols have a quote.
-    Returns (date, mid_a, mid_b) or (None, nan, nan).
+    side: 'bid' (you sell), 'ask' (you buy), or 'mid'.
+    Returns (date, price_a, price_b) or (None, nan, nan).
     """
     for d in trading_days:
         if d < from_dt:
             continue
         if d > to_dt:
             break
-        ma = get_mid(sym_a, d)
-        mb = get_mid(sym_b, d)
+        ma = get_price(sym_a, d, side)
+        mb = get_price(sym_b, d, side)
         if not np.isnan(ma) and not np.isnan(mb):
             return d, ma, mb
     return None, np.nan, np.nan
 
-def first_quoted_single(sym, from_dt, to_dt):
+def first_quoted_single(sym, from_dt, to_dt, side="mid"):
     """
     First trading day in [from_dt, to_dt] where sym has a quote.
-    Returns (date, mid) or (None, nan).
+    Returns (date, price) or (None, nan).
     """
     for d in trading_days:
         if d < from_dt:
             continue
         if d > to_dt:
             break
-        m = get_mid(sym, d)
+        m = get_price(sym, d, side)
         if not np.isnan(m):
             return d, m
     return None, np.nan
 
-def short_exit_prices(sym_a, sym_b, from_dt, expiry_dt):
-    """
-    Close each short leg independently on the first date it has a quote after
-    from_dt. If a leg has no quote before expiry, it expired worthless -> MIN_OPTION_PRICE.
-    Returns (exit_dt, mid_a, mid_b) using the later of the two individual exit dates.
-    """
-    da, ma = first_quoted_single(sym_a, from_dt, expiry_dt)
-    db, mb = first_quoted_single(sym_b, from_dt, expiry_dt)
-    # Fall back to minimum (expired worthless) when no quote found
-    if da is None:
-        ma = MIN_OPTION_PRICE
-        da = from_dt
-    if db is None:
-        mb = MIN_OPTION_PRICE
-        db = from_dt
-    # Use the later date as the representative exit date (both legs closed by then)
-    exit_dt = max(da, db)
-    return exit_dt, ma, mb
-
-def last_quoted_exit(sym_a, sym_b, target_dt, max_back=3):
+def last_quoted_exit(sym_a, sym_b, target_dt, max_back=3, side="mid"):
     """
     Most recent trading day <= target_dt (back up to max_back days) where both
     symbols have a quote. Used for far-term exit backward-scan.
     """
     candidates = [d for d in trading_days if d <= target_dt]
     for d in reversed(candidates[-(max_back + 1):]):
-        ma = get_mid(sym_a, d)
-        mb = get_mid(sym_b, d)
+        ma = get_price(sym_a, d, side)
+        mb = get_price(sym_b, d, side)
         if not np.isnan(ma) and not np.isnan(mb):
             return d, ma, mb
     return None, np.nan, np.nan
@@ -186,20 +168,20 @@ for _, row in sched.iterrows():
     lc = row["long_call"].strip()
     lp = row["long_put"].strip()
 
-    # --- Short leg entry: first date both legs are quoted in [entry_dt, earn_dt) ---
-    short_entry_dt, sc_entry, sp_entry = first_quoted_date(sc, sp, entry_dt, earn_dt - pd.Timedelta(days=1))
+    # --- Short leg entry: SELL the straddle, receive BID ---
+    short_entry_dt, sc_entry, sp_entry = first_quoted_date(
+        sc, sp, entry_dt, earn_dt - pd.Timedelta(days=1), side="bid")
     if short_entry_dt is None:
         skipped += 1
         continue
 
-    # --- Long leg entry: first quoted date on or after entry_dt, up to long_exit_dt ---
-    # Far-term contracts often start trading weeks after the intended entry date.
-    # We wait for the first active quote, up to the long exit date.
+    # --- Long leg entry: BUY the straddle, pay ASK ---
     target_long_exit = prev_trading_day(next_earn)
     if target_long_exit is None:
         skipped += 1
         continue
-    long_entry_dt, lc_entry, lp_entry = first_quoted_date(lc, lp, entry_dt, target_long_exit)
+    long_entry_dt, lc_entry, lp_entry = first_quoted_date(
+        lc, lp, entry_dt, target_long_exit, side="ask")
     if long_entry_dt is None:
         skipped += 1
         continue
@@ -215,8 +197,9 @@ for _, row in sched.iterrows():
     sp_exit       = max(strike - spot_at_exp, 0.0)   # put intrinsic
     short_exit_dt = short_exp_dt
 
-    # --- Far-term exit: last quoted date on or before (next_earn - 1 trading day) ---
-    long_exit_dt, lc_exit, lp_exit = last_quoted_exit(lc, lp, target_long_exit, max_back=5)
+    # --- Far-term exit: SELL the long straddle, receive BID ---
+    long_exit_dt, lc_exit, lp_exit = last_quoted_exit(
+        lc, lp, target_long_exit, max_back=5, side="bid")
     if long_exit_dt is None:
         skipped += 1
         continue
