@@ -11,6 +11,9 @@ __pycache__/
 # Claude Code local settings
 .claude/
 
+# Raw Databento 1-minute downloads — large, kept on disk only
+data/raw/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,0 +1,2 @@
+start_dt,end_dt,years,avg_aum,max_aum,avg_net_exposure,leverage_gross_over_net,ratio_longs_pct,frequency_bets_per_year,avg_holding_days_trade,avg_holding_days_short,avg_holding_days_long,annualized_turnover,total_pnl,pnl_short_leg,pnl_long_leg,twrr_cumulative_pct,twrr_annualized_pct,hit_ratio_pct,avg_return_hits_pct,avg_return_misses_pct
+2016-01-07,2026-05-01,10.29,88906.83,331823.0,79159.54,1.12,99.34,79.47,96.0,9.05,82.11,11.69,45114.52,58192.52,-13083.0,24.39,2.14,42.91,99.58,-70.99

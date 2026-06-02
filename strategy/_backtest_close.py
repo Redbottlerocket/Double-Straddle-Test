@@ -160,19 +160,20 @@ print(f"Win rate        : {(trades['total_pnl']>0).mean()*100:.1f}%")
 print(f"Cumulative P&L  : ${trades['total_pnl'].sum():,.2f}")
 print()
 
-# Compare against the existing trades.csv
-existing = pd.read_csv(ROOT / "results" / "trades.csv")
-if "earn_dt" in existing.columns and len(trades) > 0:
-    new_tickers_in_trades = trades.merge(
-        sched[["ticker", "earn_dt"]], on=["ticker", "earn_dt"], how="left"
-    )
-    if close_file.exists():
-        new_pulled = {s.strip()[:6].strip() for s in new["symbol"]}
-        sub_new = trades[trades["ticker"].isin(new_pulled)]
-        sub_old = existing[existing["ticker"].isin(new_pulled)]
-        print(f"=== TICKERS WITH NEW CLOSE DATA: {sorted(new_pulled)} ===")
-        print(f"  Old (cbbo-1m EOD) cum P&L for these tickers: ${sub_old['total_pnl'].sum():,.0f}")
-        print(f"  New (cbbo-1h close) cum P&L for these tickers: ${sub_new['total_pnl'].sum():,.0f}")
-        print(f"  Difference: ${sub_new['total_pnl'].sum() - sub_old['total_pnl'].sum():,.0f}")
+# Compare against the existing trades.csv for tickers we re-pulled
+if close_file.exists() and len(trades) > 0:
+    existing = pd.read_csv(ROOT / "results" / "trades.csv")
+    new_pulled = sorted({s.strip()[:6].strip() for s in new["symbol"]})
+    sub_new = trades[trades["ticker"].isin(new_pulled)]
+    sub_old = existing[existing["ticker"].isin(new_pulled)]
+    print(f"=== TICKERS WITH NEW CLOSE DATA: {new_pulled} ===")
+    print(f"  Old (cbbo-1m EOD)   cum P&L: ${sub_old['total_pnl'].sum():>10,.0f}  ({len(sub_old)} trades)")
+    print(f"  New (cbbo-1m close) cum P&L: ${sub_new['total_pnl'].sum():>10,.0f}  ({len(sub_new)} trades)")
+    print(f"  Difference                 : ${sub_new['total_pnl'].sum() - sub_old['total_pnl'].sum():>10,.0f}")
+    # Per-ticker breakdown
+    for tk in new_pulled:
+        old_tk = sub_old[sub_old["ticker"] == tk]["total_pnl"].sum()
+        new_tk = sub_new[sub_new["ticker"] == tk]["total_pnl"].sum()
+        print(f"    {tk}: old ${old_tk:>9,.0f}  ->  new ${new_tk:>9,.0f}  (diff ${new_tk - old_tk:+,.0f})")
 
 print("\nSaved -> results/trades_close.csv")
