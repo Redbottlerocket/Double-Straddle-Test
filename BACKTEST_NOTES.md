@@ -66,27 +66,39 @@ leg-day).
 
 ## 3. What the portfolio Greek charts mean
 
+The whole point of the β-scaling is the **additive property** — divide each
+ticker's Greek by the same common denominator (SPX or VIX) so they live in
+the same units and can be **summed across positions** to a meaningful
+portfolio number. Without this, AAPL's delta and GOOGL's delta measure
+different things because their underlyings have different vols and prices;
+after scaling, both are denominated in "$ P&L per 1% SPX move" and can be
+added.
+
 The portfolio Greeks are **β-scaled into SPX/VIX-equivalent dollars** so they
-read like P&L sensitivities rather than raw per-share derivatives
+read like P&L sensitivities to a market-wide move
 (`strategy/portfolio_greeks.py` → `results/charts/11_…14_…`).
 
 Per-leg-day scaling:
 
-| Quantity | Formula | Reads as |
-|---|---|---|
-| `delta_$` | `pos_delta × spot × β` | $ P&L per 1% SPX move |
-| `gamma_$` | `pos_gamma × β² × spot² × 0.01` | $ Δdelta per 1% SPX move |
-| `vega_$`  | `pos_vega × 100 × β_IV` | $ P&L per 1 vol point of VIX |
-| `theta_$` | `pos_theta × 100` | $ P&L per calendar day |
+| Quantity | Formula | Reads as | Common denominator |
+|---|---|---|---|
+| `delta_$` | `pos_delta × spot × β` | $ P&L per 1% SPX move | SPX |
+| `gamma_$` | `pos_gamma × β² × spot² × 0.01` | $ Δdelta per 1% SPX move | SPX |
+| `vega_$`  | `pos_vega × 100 × β_IV` | $ P&L per 1 vol point of VIX | VIX |
+| `theta_$` | `pos_theta × 100` | $ P&L per calendar day | time (universal) |
 
 Where:
-- **β** = rolling 60-day cov(stock log-return, SPX log-return) / var(SPX) —
-  per ticker, per date.
-- **β_IV** = rolling 60-day cov(Δ stock IV, Δ VIX) / var(Δ VIX) — stock IV
-  is the mean of all open-leg IVs (capped at 200% to drop numerical outliers),
-  multiplied by 100 to match VIX units.
+- **β** = rolling 60-day **cov(stock log-return, SPX log-return) / var(SPX)** —
+  per ticker, per date. The `/ var(SPX)` is the "divide by SPX" step that
+  gives the additive denominator.
+- **β_IV** = rolling 60-day **cov(Δ stock IV, Δ VIX) / var(Δ VIX)** — same
+  idea for IV: divides by VIX variance so every ticker's vega is in
+  "$/VIX-point" units. Stock IV is the mean of open-leg IVs (capped at 200%
+  to drop numerical outliers), multiplied by 100 to match VIX's vol-point unit.
 
-Aggregated by **summing across all open legs** each day.
+Aggregated by **summing across all open legs** each day. Because every leg
+is in the same SPX-equivalent (or VIX-equivalent) unit, the sum is a real
+portfolio sensitivity, not a meaningless sum of incompatible numbers.
 
 **What you should see in each chart (the textbook calendar profile):**
 
@@ -151,28 +163,47 @@ Three sources of P&L on each trade:
 
 | Driver | How it shows up | Sign on a "good" outcome |
 |---|---|---|
-| **IV crush on the short** | Short call+put fall through earnings; you bought them back cheap (or they expired worthless) | Positive |
-| **IV expansion on the long** | Long call+put rally as the next earnings approaches | Positive |
+| **IV crush on the short** | Short call+put implied move > realised move at expiry → keep more of the credit | Positive |
+| **IV expansion on the long** | Long call+put rally as the next earnings approaches → exit above entry debit | Positive |
 | **Spot drift** | Underlying moves while you're holding | Mixed — small moves help (short keeps credit, long gets some intrinsic); huge moves on the wrong side hurt |
 
 **Empirical attribution (818 trades):**
 
-| Leg | Avg P&L | Win rate |
-|---|---|---|
-| Short | **+$71** | **55.9%** |
-| Long  | **−$16** | 39.4% |
-| Combined | **+$160** | 42.9% |
+| Leg | Cum P&L | Avg / trade | Win rate |
+|---|---|---|---|
+| **Short** | **+$58,193** | **+$71** | **55.9%** |
+| **Long**  | **−$13,083** | **−$16** | 39.4% |
+| **Combined** | **+$45,110** | **+$55** | 42.9% |
 
-- **The short leg is the reliable workhorse** — IV crush works more often
-  than not (56% win rate, small but consistently positive expectancy).
-- **The long leg is the lottery ticket** — sub-40% win rate, slightly
-  negative on average, but the big tails come from here. Theta usually wins
-  in the long-only window unless something IV-expanding happens.
+(Avg winner $2,539, avg loser −$1,812, median trade −$134.)
+
+**Where the +$71/trade short edge actually comes from — IV crush, literally:**
+
+| Avg implied move (short credit sold) | $18.90 / share |
+|---|---|
+| Avg realised move (intrinsic at short expiry) | $18.19 / share |
+| **Edge** | **$0.71 / share × 100 = $71 / trade** |
+
+The market over-prices the implied move by ~$0.71/share on average. The
+stock stays inside the implied move in **55.9%** of trades — that's exactly
+the short-leg win rate. **IV crush is what makes the short profitable, and
+over 818 trades it added +$58k.**
+
+The edge is small per trade because the options market is mostly efficient.
+Wins are capped at the credit (~$1.1k avg); losses are unbounded (worst
+single-trade short P&L: −$18k on GOOGL Feb-2022). So you collect a steady
+small edge and occasionally give back a chunk on a huge earnings surprise.
+
+- **The short leg is the reliable workhorse** — small positive expectancy
+  every cycle, +$58k cumulative. Driven directly by implied > realised.
+- **The long leg is the high-variance vega bet** — sub-40% win rate, −$13k
+  cumulative. Theta usually wins in the long-only window; the strategy hopes
+  IV expansion into the next earnings overcomes it.
 - **Correlation between leg P&Ls: −0.07** (essentially zero). They're
   independent — one doesn't predict the other.
 
 **Top 10 winners** are almost all driven by the **long leg blowing up to the
-upside**:
+upside** (huge IV expansion or directional move):
 - TSLA Apr-2020 (+$64k, long +$55k) — IV exploded post-COVID rally
 - ASML Oct-2025 (+$31k, long +$26k)
 - AMZN Oct-2017 (+$21k, long +$29k offsetting short −$8k)
@@ -182,10 +213,12 @@ upside**:
 - GOOGL Feb-2022 (−$35k, both legs −$17k each) — earnings move clobbered short, IV collapse hurt long
 - AMZN Feb-2022 (−$34k)
 
-**Read this honestly:** the strategy makes money on the short side most of
-the time, but the long side is the volatility lever. Most of the variance —
-both good and bad — comes from what happens to the long straddle during the
-~80-day window between short expiry and the next earnings.
+**Read this honestly:** the strategy's structural alpha is the short leg's
+IV-crush edge — small, consistent, +$58k over a decade. The long leg is a
+separate high-variance bet bolted on top: it's slightly negative on average
+but provides the +$64k tails that pad the headline cumulative. Almost all
+the variance in the equity curve — good and bad — comes from the long-leg
+side.
 
 ---
 
@@ -230,17 +263,19 @@ can't.
 
 You short the ATM straddle expiring just after each earnings event and buy
 the ATM straddle expiring just after the *next* earnings event, entering both
-~7 days before earnings. The data: ~10 years, 25 tickers, 818 trades pulled
-from Databento OPRA at EOD. The short side captures IV crush (works ~56% of
-the time, small consistent edge); the long side is held ~80 more days hoping
-IV expands into the next earnings (~39% win rate, large variance). Combined:
-42.9% win rate, slightly positive expectancy, with the long-leg variance
-dominating both tails. Greeks are computed per leg per day from
-implied-volatility-inverted mid prices, then β-scaled into SPX/VIX-equivalent
-dollars to read as P&L sensitivities. The portfolio Greek charts should show
-short-vega / short-gamma / positive-theta in the pre-earnings window flipping
-to long-vega / negative-theta in the long-only window — that's the entire
-strategy in one picture.
+~7 days before earnings. The data: ~10 years, 25 tickers, **818 trades**,
+pulled from Databento OPRA at EOD. The short side captures **IV crush
+(+$58k cumulative, +$71/trade, 55.9% wins)** — the implied move averages
+$0.71/share above the realised move, and that gap is the edge. The long
+side is a separate vega bet held ~80 more days hoping IV expands into the
+next earnings (−$13k cumulative, −$16/trade, 39.4% wins). **Combined: +$45k
+cumulative, +$55/trade, 42.9% win rate** — slightly positive expectancy
+with the long-leg variance dominating both tails. Greeks are computed per
+leg per day from implied-volatility-inverted mid prices, then β-scaled into
+SPX/VIX-equivalent dollars to read as additive P&L sensitivities. The
+portfolio Greek charts should show short-vega / short-gamma / positive-theta
+in the pre-earnings window flipping to long-vega / negative-theta in the
+long-only window — that's the entire strategy in one picture.
 
 ---
 
