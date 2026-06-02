@@ -1,5 +1,5 @@
-# Databento API key and data pipeline scripts (private)
-pipeline/
+# Databento API key and data pipeline scripts (private) — root only
+/pipeline/
 
 # Python environment
 venv/
